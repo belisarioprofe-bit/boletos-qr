@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Boletos QR</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--text:#1f2937;--muted:#6b7280;--accent:#2c7be5;--ok:#1e7e34;--bad:#b02a37;--border:#e5e7eb;}
 *{box-sizing:border-box}
@@ -17,26 +18,32 @@ main{max-width:480px;margin:0 auto;padding:20px;}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
 h2{margin-top:0;font-size:18px;}
 label{display:block;font-weight:bold;margin-top:14px;font-size:14px;}
-input{width:100%;padding:10px;margin-top:5px;border:1px solid var(--border);border-radius:6px;font-size:15px;}
+input,textarea{width:100%;padding:10px;margin-top:5px;border:1px solid var(--border);border-radius:6px;font-size:15px;font-family:inherit;}
+textarea{resize:vertical;min-height:90px;}
 button.accion{width:100%;margin-top:18px;padding:13px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;}
-.qrbox{text-align:center;margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:10px;}
-.qrbox svg{width:180px;height:180px;}
+button.secundaria{background:#6c757d;}
 #video{width:100%;border-radius:10px;background:#000;}
 #resEscaneo{margin-top:14px;padding:16px;border-radius:10px;text-align:center;font-size:18px;font-weight:bold;min-height:60px;}
 .ok{background:var(--ok);color:#fff;}
 .bad{background:var(--bad);color:#fff;}
 .neutro{background:var(--border);color:var(--muted);}
-table{width:100%;border-collapse:collapse;font-size:14px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
 th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);}
 .pill{padding:2px 8px;border-radius:10px;font-size:12px;}
 .pill.si{background:#d4edda;color:#155724;}
 .pill.no{background:#fff3cd;color:#856404;}
 small{color:var(--muted);}
+.filaResultado{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);gap:8px;}
+.filaResultado button{padding:6px 10px;font-size:13px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;}
 #pinOverlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100;}
 #pinOverlay .card{width:260px;}
+#vistaTicket{max-width:360px;margin:60px auto;text-align:center;}
+#vistaTicket svg{width:220px;height:220px;}
 </style>
 </head>
 <body>
+
+<div id="appPrincipal" style="display:none;">
 <header>
   <button id="tabGenerar" class="activo" onclick="mostrar('Generar')">Generar</button>
   <button id="tabValidar" onclick="mostrar('Validar')">Validar</button>
@@ -45,12 +52,14 @@ small{color:var(--muted);}
 <main>
   <section id="secGenerar">
     <div class="card">
-      <h2>Generar código(s)</h2>
-      <label>Nombre</label>
-      <input id="nombre" placeholder="Nombre de la persona">
-      <label>Cantidad de códigos</label>
-      <input id="cantidad" type="number" min="1" value="1">
-      <button class="accion" onclick="generar()">Generar</button>
+      <h2>Generar códigos</h2>
+      <label>Nombre del evento</label>
+      <input id="evento" placeholder="Ej. Feria de Ciencias">
+      <label>Fecha del evento</label>
+      <input id="fechaEvento" type="date">
+      <label>Lista de nombres (uno por línea)</label>
+      <textarea id="listaNombres" placeholder="Juan Pérez&#10;María López&#10;Carlos Ruiz"></textarea>
+      <button class="accion" onclick="generar()">Generar códigos</button>
     </div>
     <div id="resultadoGenerar"></div>
   </section>
@@ -67,10 +76,16 @@ small{color:var(--muted);}
   <section id="secRegistro" style="display:none;">
     <div class="card">
       <h2>Registro de códigos</h2>
-      <table><thead><tr><th>Nombre</th><th>Código</th><th>Usado</th></tr></thead><tbody id="filasRegistro"></tbody></table>
+      <button class="accion secundaria" onclick="exportarExcel()">📊 Exportar a Excel</button>
+      <div style="overflow-x:auto;margin-top:14px;">
+        <table><thead><tr><th>Titular</th><th>Evento</th><th>Código</th><th>Usado</th></tr></thead><tbody id="filasRegistro"></tbody></table>
+      </div>
     </div>
   </section>
 </main>
+</div>
+
+<div id="vistaTicket" style="display:none;"></div>
 
 <div id="pinOverlay">
   <div class="card">
@@ -98,131 +113,214 @@ small{color:var(--muted);}
   const db = getFirestore(app);
 
   // ---- CAMBIA ESTE PIN POR EL TUYO ----
-  const PIN_SECRETO = "9999";
+  const PIN_SECRETO = "1234";
 
-  window.verificarPin = function () {
-    const valor = document.getElementById('pinInput').value;
-    if (valor === PIN_SECRETO) {
-      localStorage.setItem('pinOk', '1');
-      document.getElementById('pinOverlay').style.display = 'none';
-      document.getElementById('pinError').style.display = 'none';
-    } else {
-      document.getElementById('pinError').style.display = 'block';
-    }
-  };
-
-  function pedirPinSiHaceFalta() {
-    if (localStorage.getItem('pinOk') === '1') return true;
-    document.getElementById('pinOverlay').style.display = 'flex';
-    return false;
+  function urlBase() {
+    return window.location.href.split('?')[0];
   }
 
-  window.mostrar = function (id) {
-    if ((id === 'Generar' || id === 'Registro') && !pedirPinSiHaceFalta()) return;
-    ['Generar', 'Validar', 'Registro'].forEach(s => {
-      document.getElementById('sec' + s).style.display = s === id ? 'block' : 'none';
-      document.getElementById('tab' + s).classList.toggle('activo', s === id);
-    });
-    if (id === 'Validar') iniciarCamara();
-  };
-
-  function codigoAleatorio() {
-    return 'TKT-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  function dibujarQR(contenedor, texto) {
+    const qr = qrcode(0, 'M');
+    qr.addData(texto);
+    qr.make();
+    contenedor.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
   }
 
-  window.generar = async function () {
-    const nombre = document.getElementById('nombre').value.trim();
-    const cantidad = parseInt(document.getElementById('cantidad').value, 10) || 1;
-    if (!nombre) { alert('Escribe el nombre de la persona.'); return; }
-    const cont = document.getElementById('resultadoGenerar');
-    cont.innerHTML = 'Generando...';
-    const codigos = [];
-    for (let i = 0; i < cantidad; i++) {
-      const codigo = codigoAleatorio();
-      await setDoc(doc(db, 'boletos', codigo), { nombre, fechaCreado: serverTimestamp(), usado: false, fechaUso: null });
-      codigos.push(codigo);
-    }
-    cont.innerHTML = '';
-    codigos.forEach(codigo => {
-      const qr = qrcode(0, 'M');
-      qr.addData(codigo);
-      qr.make();
-      const div = document.createElement('div');
-      div.className = 'qrbox';
-      div.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 }) + '<div style="margin-top:8px;"><strong>' + codigo + '</strong><br><small>' + nombre + '</small></div>';
-      cont.appendChild(div);
-    });
-    document.getElementById('nombre').value = '';
-    document.getElementById('cantidad').value = '1';
-  };
+  // ---------- MODO "VER UN SOLO BOLETO" (para compartir por enlace) ----------
+  const parametros = new URLSearchParams(window.location.search);
+  const codigoTicket = parametros.get('ticket');
 
-  function suscribir() {
-    const q = query(collection(db, 'boletos'), orderBy('fechaCreado', 'desc'));
-    onSnapshot(q, snap => {
-      const filas = document.getElementById('filasRegistro');
-      filas.innerHTML = '';
-      snap.forEach(d => {
-        const b = d.data();
-        const tr = document.createElement('tr');
-        tr.innerHTML = '<td>' + (b.nombre || '') + '</td><td>' + d.id + '</td><td><span class="pill ' + (b.usado ? 'si' : 'no') + '">' + (b.usado ? 'Sí' : 'No') + '</span></td>';
-        filas.appendChild(tr);
-      });
-    }, err => console.error(err));
-  }
-  suscribir();
-
-  let camaraIniciada = false, procesando = false;
-  function iniciarCamara() {
-    if (camaraIniciada) return;
-    camaraIniciada = true;
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
-      video.srcObject = stream;
-      video.play();
-      requestAnimationFrame(escanear);
-    }).catch(err => {
-      document.getElementById('resEscaneo').textContent = 'No se pudo acceder a la cámara: ' + err.message;
-    });
-    function escanear() {
-      if (video.readyState === video.HAVE_ENOUGH_DATA && !procesando) {
-        canvas.height = video.videoHeight;
-        canvas.width = video.videoWidth;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(img.data, img.width, img.height);
-        if (code && code.data) { procesando = true; validar(code.data); }
-      }
-      requestAnimationFrame(escanear);
-    }
-  }
-
-  async function validar(codigo) {
-    const res = document.getElementById('resEscaneo');
-    res.className = 'neutro';
-    res.textContent = 'Verificando...';
-    const ref = doc(db, 'boletos', codigo);
-    const snap = await getDoc(ref);
+  async function mostrarVistaTicket(codigo) {
+    const cont = document.getElementById('vistaTicket');
+    cont.style.display = 'block';
+    cont.innerHTML = '<p>Cargando boleto...</p>';
+    const snap = await getDoc(doc(db, 'boletos', codigo));
     if (!snap.exists()) {
-      res.className = 'bad';
-      res.textContent = '🚫 CÓDIGO NO ENCONTRADO';
-    } else {
-      const b = snap.data();
-      if (b.usado) {
-        res.className = 'bad';
-        res.innerHTML = '🚫 YA INGRESÓ<br><small>' + b.nombre + '</small>';
-      } else {
-        await updateDoc(ref, { usado: true, fechaUso: serverTimestamp() });
-        res.className = 'ok';
-        res.innerHTML = '✅ ACCESO PERMITIDO<br><small>' + b.nombre + '</small>';
-      }
+      cont.innerHTML = '<h2>Boleto no encontrado</h2><p>Verifica que el enlace esté completo.</p>';
+      return;
     }
-    setTimeout(() => { res.className = 'neutro'; res.textContent = 'Apunta la cámara al código QR'; procesando = false; }, 2500);
+    const b = snap.data();
+    const divQR = document.createElement('div');
+    dibujarQR(divQR, codigo);
+    cont.innerHTML = '';
+    const titulo = document.createElement('h2');
+    titulo.textContent = b.evento || 'Tu boleto';
+    cont.appendChild(titulo);
+    if (b.fechaEvento) {
+      const p = document.createElement('p');
+      p.innerHTML = '<small>' + b.fechaEvento + '</small>';
+      cont.appendChild(p);
+    }
+    cont.appendChild(divQR);
+    const nombre = document.createElement('p');
+    nombre.innerHTML = '<strong>' + (b.nombre || '') + '</strong><br><small>' + codigo + '</small>';
+    cont.appendChild(nombre);
+    const aviso = document.createElement('p');
+    aviso.innerHTML = '<small>Muestra este código en la entrada. Es válido una sola vez.</small>';
+    cont.appendChild(aviso);
   }
 
-  // Al cargar, si "Generar" (pestaña por defecto) requiere PIN, pedirlo
-  pedirPinSiHaceFalta();
+  if (codigoTicket) {
+    mostrarVistaTicket(codigoTicket);
+  } else {
+    document.getElementById('appPrincipal').style.display = 'block';
+    iniciarAppPrincipal();
+  }
+
+  function iniciarAppPrincipal() {
+    window.verificarPin = function () {
+      const valor = document.getElementById('pinInput').value;
+      if (valor === PIN_SECRETO) {
+        localStorage.setItem('pinOk', '1');
+        document.getElementById('pinOverlay').style.display = 'none';
+        document.getElementById('pinError').style.display = 'none';
+      } else {
+        document.getElementById('pinError').style.display = 'block';
+      }
+    };
+
+    function pedirPinSiHaceFalta() {
+      if (localStorage.getItem('pinOk') === '1') return true;
+      document.getElementById('pinOverlay').style.display = 'flex';
+      return false;
+    }
+
+    window.mostrar = function (id) {
+      if ((id === 'Generar' || id === 'Registro') && !pedirPinSiHaceFalta()) return;
+      ['Generar', 'Validar', 'Registro'].forEach(s => {
+        document.getElementById('sec' + s).style.display = s === id ? 'block' : 'none';
+        document.getElementById('tab' + s).classList.toggle('activo', s === id);
+      });
+      if (id === 'Validar') iniciarCamara();
+    };
+
+    function codigoAleatorio() {
+      return 'TKT-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    }
+
+    window.generar = async function () {
+      const evento = document.getElementById('evento').value.trim();
+      const fechaEvento = document.getElementById('fechaEvento').value;
+      const nombres = document.getElementById('listaNombres').value
+        .split('\n').map(n => n.trim()).filter(n => n.length > 0);
+
+      if (nombres.length === 0) { alert('Escribe al menos un nombre en la lista.'); return; }
+      const cont = document.getElementById('resultadoGenerar');
+      cont.innerHTML = '<div class="card">Generando ' + nombres.length + ' código(s)...</div>';
+
+      const generados = [];
+      for (const nombre of nombres) {
+        const codigo = codigoAleatorio();
+        await setDoc(doc(db, 'boletos', codigo), {
+          nombre, evento, fechaEvento,
+          fechaCreado: serverTimestamp(), usado: false, fechaUso: null
+        });
+        generados.push({ nombre, codigo });
+      }
+
+      const tarjeta = document.createElement('div');
+      tarjeta.className = 'card';
+      tarjeta.innerHTML = '<h2>' + generados.length + ' código(s) generado(s)</h2><p><small>Comparte el enlace de cada uno (no la imagen) con el asistente.</small></p>';
+      generados.forEach(g => {
+        const enlace = urlBase() + '?ticket=' + g.codigo;
+        const fila = document.createElement('div');
+        fila.className = 'filaResultado';
+        fila.innerHTML = '<span>' + g.nombre + '<br><small>' + g.codigo + '</small></span>' +
+          '<span><button onclick="navigator.clipboard.writeText(\'' + enlace + '\');this.textContent=\'Copiado ✓\'">Copiar enlace</button> ' +
+          '<a href="' + enlace + '" target="_blank"><button type="button">Ver QR</button></a></span>';
+        tarjeta.appendChild(fila);
+      });
+      cont.innerHTML = '';
+      cont.appendChild(tarjeta);
+
+      document.getElementById('listaNombres').value = '';
+    };
+
+    let todosLosBoletos = [];
+
+    function suscribir() {
+      const q = query(collection(db, 'boletos'), orderBy('fechaCreado', 'desc'));
+      onSnapshot(q, snap => {
+        todosLosBoletos = [];
+        const filas = document.getElementById('filasRegistro');
+        filas.innerHTML = '';
+        snap.forEach(d => {
+          const b = d.data();
+          todosLosBoletos.push({ codigo: d.id, ...b });
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + (b.nombre || '') + '</td><td>' + (b.evento || '') + '</td><td>' + d.id + '</td><td><span class="pill ' + (b.usado ? 'si' : 'no') + '">' + (b.usado ? 'Sí' : 'No') + '</span></td>';
+          filas.appendChild(tr);
+        });
+      }, err => console.error(err));
+    }
+    suscribir();
+
+    window.exportarExcel = function () {
+      if (todosLosBoletos.length === 0) { alert('Todavía no hay códigos generados.'); return; }
+      const filas = todosLosBoletos.map(b => ({
+        Evento: b.evento || '',
+        'Fecha del evento': b.fechaEvento || '',
+        'Nombre del titular': b.nombre || '',
+        Código: b.codigo,
+        Usado: b.usado ? 'Sí' : 'No'
+      }));
+      const hoja = XLSX.utils.json_to_sheet(filas);
+      const libro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(libro, hoja, 'Boletos');
+      XLSX.writeFile(libro, 'registro-boletos.xlsx');
+    };
+
+    let camaraIniciada = false, procesando = false;
+    function iniciarCamara() {
+      if (camaraIniciada) return;
+      camaraIniciada = true;
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+        video.srcObject = stream;
+        video.play();
+        requestAnimationFrame(escanear);
+      }).catch(err => {
+        document.getElementById('resEscaneo').textContent = 'No se pudo acceder a la cámara: ' + err.message;
+      });
+      function escanear() {
+        if (video.readyState === video.HAVE_ENOUGH_DATA && !procesando) {
+          canvas.height = video.videoHeight;
+          canvas.width = video.videoWidth;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(img.data, img.width, img.height);
+          if (code && code.data) { procesando = true; validar(code.data); }
+        }
+        requestAnimationFrame(escanear);
+      }
+    }
+
+    window.validarGlobal = async function (codigo) {
+      const res = document.getElementById('resEscaneo');
+      res.className = 'neutro';
+      res.textContent = 'Verificando...';
+      const ref = doc(db, 'boletos', codigo);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        res.className = 'bad';
+        res.textContent = '🚫 CÓDIGO NO ENCONTRADO';
+      } else {
+        const b = snap.data();
+        if (b.usado) {
+          res.className = 'bad';
+          res.innerHTML = '🚫 YA INGRESÓ<br><small>' + b.nombre + '</small>';
+        } else {
+          await updateDoc(ref, { usado: true, fechaUso: serverTimestamp() });
+          res.className = 'ok';
+          res.innerHTML = '✅ ACCESO PERMITIDO<br><small>' + b.nombre + '</small>';
+        }
+      }
+      setTimeout(() => { res.className = 'neutro'; res.textContent = 'Apunta la cámara al código QR'; procesando = false; }, 2500);
+    };
+    async function validar(codigo) { return window.validarGlobal(codigo); }
+  }
 </script>
 </body>
 </html>
