@@ -6,6 +6,7 @@
 <title>Boletos QR</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
 :root{--bg:#f4f6f8;--card:#fff;--text:#1f2937;--muted:#6b7280;--accent:#2c7be5;--ok:#1e7e34;--bad:#b02a37;--border:#e5e7eb;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif;}
@@ -97,7 +98,7 @@ small{color:var(--muted);}
   const db = getFirestore(app);
 
   // ---- CAMBIA ESTE PIN POR EL TUYO ----
-  const PIN_SECRETO = "1234";
+  const PIN_SECRETO = "9999";
 
   window.verificarPin = function () {
     const valor = document.getElementById('pinInput').value;
